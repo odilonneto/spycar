@@ -1,56 +1,60 @@
-from flask import Flask, request, send_from_directory
+from flask import Flask, request, send_from_directory, render_template_string
+from flask_socketio import SocketIO
 import os
+import base64
+import eventlet
+
+eventlet.monkey_patch()
 
 app = Flask(__name__)
-UPLOAD_FOLDER = 'uploads'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config['UPLOAD_FOLDER'] = 'uploads'
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+socketio = SocketIO(app, cors_allowed_origins='*')
+
+@app.route('/')
+def index():
+    return render_template_string("""
+    <!doctype html>
+    <html lang="pt-br">
+      <head>
+        <meta charset="utf-8">
+        <title>SpyCam</title>
+        <style>
+          body { margin: 0; background: black; display: flex; justify-content: center; align-items: center; height: 100vh; }
+          img { display: block; max-width: 100%; height: auto; }
+        </style>
+      </head>
+      <body>
+        <img id="cam" src="">
+        <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+        <script>
+          const socket = io();
+          socket.on('new_frame', data => {
+            document.getElementById('cam').src = 'data:image/jpeg;base64,' + data;
+          });
+        </script>
+      </body>
+    </html>
+    """)
 
 @app.route('/upload', methods=['POST'])
-def upload_image():
+def upload():
     try:
-        with open(os.path.join(UPLOAD_FOLDER, 'frame.jpg'), 'wb') as f:
+        # Salva imagem recebida
+        img_path = os.path.join(app.config['UPLOAD_FOLDER'], 'frame.jpg')
+        with open(img_path, 'wb') as f:
             f.write(request.data)
+
+        # Codifica imagem para base64
+        encoded = base64.b64encode(request.data).decode('utf-8')
+
+        # Envia imagem via WebSocket
+        socketio.emit('new_frame', encoded)
+
         return 'OK', 200
     except Exception as e:
         return f'Erro: {e}', 500
 
-@app.route('/frame.jpg')
-def frame():
-    return send_from_directory(UPLOAD_FOLDER, 'frame.jpg')
-
-@app.route('/')
-def index():
-    return """<!doctype html>
-<html lang="pt-br">
-  <head>
-    <meta charset="utf-8">
-    <title>Live ESP32-CAM</title>
-    <style>
-      html, body {
-        margin: 0;
-        padding: 0;
-        background: #000;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        height: 100vh;
-      }
-      img {
-        display: block;
-      }
-    </style>
-  </head>
-  <body>
-    <img id="cam" src="/frame.jpg" alt="frame">
-    <script>
-      const img = document.getElementById('cam');
-      setInterval(() => {
-        img.src = '/frame.jpg?_=' + new Date().getTime();
-      }, 500);
-    </script>
-  </body>
-</html>"""
-
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    socketio.run(app, host='0.0.0.0', port=5000)
