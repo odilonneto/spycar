@@ -46,12 +46,6 @@ def upload():
         with open(img_path, 'wb') as f:
             f.write(request.data)
 
-        # Codifica imagem para base64
-        encoded = base64.b64encode(request.data).decode('utf-8')
-
-        # Envia imagem via WebSocket
-        socketio.emit('new_frame', encoded)
-
         return 'OK', 200
     except Exception as e:
         return f'Erro: {e}', 500
